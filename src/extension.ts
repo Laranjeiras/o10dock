@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -84,14 +85,7 @@ function getDashboardHtml(webview: vscode.Webview): string {
 }
 
 function getNonce(): string {
-  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-
-  for (let index = 0; index < 32; index += 1) {
-    result += characters.charAt(Math.floor(Math.random() * characters.length));
-  }
-
-  return result;
+  return randomBytes(16).toString('base64url');
 }
 
 export function deactivate(): void {}
