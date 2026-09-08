@@ -8,3 +8,5 @@ out/**/*.map
 .gitignore
 .vscodeignore
 *.vsix
+AGENTS.md
+CLAUDE.md
