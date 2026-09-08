@@ -1,0 +1,47 @@
+{
+  "name": "o10dock",
+  "displayName": "O10Dock",
+  "description": "A personalized VS Code project dashboard.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "o10dock.open",
+        "title": "O10Dock: Open"
+      }
+    ],
+    "configuration": {
+      "title": "O10Dock",
+      "properties": {
+        "o10dock.projectFolders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Folders containing projects to show in the dashboard."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "3.9.2",
+    "typescript": "^5.3.0"
+  }
+}
