@@ -5,6 +5,10 @@
   "version": "0.0.1",
   "publisher": "local",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Laranjeiras/o10dock.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -36,7 +40,8 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "vscode:prepublish": "npm run compile"
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --no-git-tag-version"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
