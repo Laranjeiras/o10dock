@@ -104,11 +104,40 @@ jobs:
 
       - name: Publish to VS Code Marketplace
         if: env.VSCE_PAT != ''
-        run: npx @vscode/vsce publish --packagePath "o10dock-${VERSION}.vsix"
+        run: |
+          for attempt in 1 2 3; do
+            echo "::group::vsce publish attempt $attempt"
+            if npx @vscode/vsce publish --packagePath "o10dock-${VERSION}.vsix"; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "::warning::vsce publish attempt $attempt failed"
+            if [ "$attempt" -lt 3 ]; then
+              sleep "$((attempt * 30))"
+            fi
+          done
+          echo "::error::vsce publish failed after 3 attempts"
+          exit 1
 
       - name: Publish to Open VSX
         if: env.OVSX_PAT != ''
-        run: npx ovsx publish "o10dock-${VERSION}.vsix" --pat "$OVSX_PAT"
+        continue-on-error: true
+        run: |
+          for attempt in 1 2 3; do
+            echo "::group::ovsx publish attempt $attempt"
+            if npx ovsx publish "o10dock-${VERSION}.vsix" --pat "$OVSX_PAT"; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "::warning::ovsx publish attempt $attempt failed"
+            if [ "$attempt" -lt 3 ]; then
+              sleep "$((attempt * 30))"
+            fi
+          done
+          echo "::error::ovsx publish failed after 3 attempts"
+          exit 1
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
