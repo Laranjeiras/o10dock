@@ -16,6 +16,7 @@
     "Other"
   ],
   "main": "./out/extension.js",
+  "activationEvents": [],
   "contributes": {
     "commands": [
       {
@@ -47,10 +48,36 @@
         "o10dock.projectFolders": {
           "type": "array",
           "items": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Legacy format: the folder path."
+              },
+              {
+                "type": "object",
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Absolute path of the project folder."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Display name. Defaults to the folder name."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Short description. Defaults to the detected project kind."
+                  }
+                }
+              }
+            ]
           },
           "default": [],
-          "description": "Folders containing projects to show in the dashboard."
+          "description": "Projects to show in the dashboard."
         }
       }
     }
