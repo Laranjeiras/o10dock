@@ -23,6 +23,24 @@
         "title": "O10Dock: Open"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "o10dock",
+          "title": "O10Dock",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "o10dock": [
+        {
+          "id": "o10dock.sidebarView",
+          "name": "Dashboard",
+          "type": "webview"
+        }
+      ]
+    },
     "configuration": {
       "title": "O10Dock",
       "properties": {

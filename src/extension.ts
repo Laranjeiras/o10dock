@@ -1,7 +1,30 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 
+class O10DockViewProvider implements vscode.WebviewViewProvider {
+  public static readonly viewType = 'o10dock.sidebarView';
+
+  resolveWebviewView(webviewView: vscode.WebviewView): void {
+    webviewView.webview.options = { enableScripts: true };
+    webviewView.webview.html = getDashboardHtml(webviewView.webview);
+
+    webviewView.webview.onDidReceiveMessage(async (message: { type?: string }) => {
+      if (message.type === 'openSettings') {
+        await vscode.commands.executeCommand(
+          'workbench.action.openSettings',
+          '@ext:local.o10dock'
+        );
+      }
+    });
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
+  const provider = new O10DockViewProvider();
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(O10DockViewProvider.viewType, provider)
+  );
+
   const disposable = vscode.commands.registerCommand('o10dock.open', () => {
     const panel = vscode.window.createWebviewPanel(
       'o10dock',
