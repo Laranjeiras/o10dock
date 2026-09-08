@@ -26,12 +26,12 @@ jobs:
       should_publish: ${{ steps.meta.outputs.should_publish }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -66,7 +66,7 @@ jobs:
         run: npx @vscode/vsce package --no-git-tag-version --out "o10dock-${{ steps.meta.outputs.version }}.vsix"
 
       - name: Upload .vsix artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: o10dock-vsix
           path: o10dock-${{ steps.meta.outputs.version }}.vsix
@@ -86,10 +86,10 @@ jobs:
       OVSX_PAT: ${{ secrets.OPEN_VSX_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -98,7 +98,7 @@ jobs:
         run: npm ci
 
       - name: Download .vsix artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: o10dock-vsix
 
