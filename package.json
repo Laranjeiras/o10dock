@@ -86,12 +86,19 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run compile",
-    "package": "vsce package --no-git-tag-version"
+    "package": "vsce package --no-git-tag-version",
+    "typecheck": "tsc -p ./ --noEmit"
   },
   "devDependencies": {
+    "@semantic-release/changelog": "6.0.3",
+    "@semantic-release/exec": "7.1.0",
+    "@semantic-release/git": "10.0.1",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "3.9.2",
+    "conventional-changelog-conventionalcommits": "8.0.0",
+    "ovsx": "0.10.12",
+    "semantic-release": "24.2.9",
     "typescript": "7.0.2"
   }
 }

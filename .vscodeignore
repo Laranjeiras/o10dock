@@ -10,3 +10,4 @@ out/**/*.map
 *.vsix
 AGENTS.md
 CLAUDE.md
+.releaserc.json

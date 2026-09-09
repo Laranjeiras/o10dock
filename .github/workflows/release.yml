@@ -5,8 +5,8 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      force:
-        description: "Publish even if the version tag already exists"
+      dry_run:
+        description: "Run semantic-release without publishing anything"
         type: boolean
         default: false
 
@@ -15,78 +15,31 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
-    name: Build & Package
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.meta.outputs.version }}
-      should_publish: ${{ steps.meta.outputs.should_publish }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Compile
-        run: npm run compile
-
-      - name: Resolve version and publish decision
-        id: meta
-        env:
-          FORCE: ${{ inputs.force }}
-        run: |
-          version="$(node -p "require('./package.json').version")"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-            if [ "$FORCE" = "true" ]; then
-              echo "Tag v$version exists, but force was requested."
-              echo "should_publish=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "::notice::Tag v$version already exists. Bump the version in package.json to publish a new release."
-              echo "should_publish=false" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "should_publish=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Package extension (.vsix)
-        run: npx @vscode/vsce package --no-git-tag-version --out "o10dock-${{ steps.meta.outputs.version }}.vsix"
-
-      - name: Upload .vsix artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: o10dock-vsix
-          path: o10dock-${{ steps.meta.outputs.version }}.vsix
-          retention-days: 90
-
-  publish:
-    name: Publish
-    needs: build
-    if: needs.build.outputs.should_publish == 'true'
+  release:
+    name: Semantic Release
+    # The release commit is authored by this workflow; re-running on it would
+    # be a no-op at best and a loop at worst.
+    if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore(release):')
     runs-on: ubuntu-latest
     environment: marketplace
     permissions:
       contents: write
+      issues: write
+      pull-requests: write
     env:
-      VERSION: ${{ needs.build.outputs.version }}
+      GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       OVSX_PAT: ${{ secrets.OPEN_VSX_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          # semantic-release pushes the version bump commit and tag back to main.
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -97,79 +50,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Download .vsix artifact
-        uses: actions/download-artifact@v8
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Semantic release
+        run: npx semantic-release ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Upload .vsix artifact
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
           name: o10dock-vsix
-
-      - name: Publish to VS Code Marketplace
-        if: env.VSCE_PAT != ''
-        run: |
-          for attempt in 1 2 3; do
-            echo "::group::vsce publish attempt $attempt"
-            set +e
-            output="$(npx @vscode/vsce publish --packagePath "o10dock-${VERSION}.vsix" 2>&1)"
-            status=$?
-            set -e
-            echo "$output"
-            echo "::endgroup::"
-
-            if [ "$status" -eq 0 ]; then
-              exit 0
-            fi
-
-            # A gateway timeout can be reported after the upload already succeeded,
-            # so a retry legitimately finds the version published. That is the
-            # desired end state, not a failure.
-            if echo "$output" | grep -qi "already exists"; then
-              echo "::notice::Marketplace already has ${VERSION}; treating as published."
-              exit 0
-            fi
-
-            echo "::warning::vsce publish attempt $attempt failed"
-            if [ "$attempt" -lt 3 ]; then
-              sleep "$((attempt * 30))"
-            fi
-          done
-          echo "::error::vsce publish failed after 3 attempts"
-          exit 1
-
-      - name: Publish to Open VSX
-        if: env.OVSX_PAT != ''
-        continue-on-error: true
-        run: |
-          for attempt in 1 2 3; do
-            echo "::group::ovsx publish attempt $attempt"
-            set +e
-            output="$(npx ovsx publish "o10dock-${VERSION}.vsix" --pat "$OVSX_PAT" 2>&1)"
-            status=$?
-            set -e
-            echo "$output"
-            echo "::endgroup::"
-
-            if [ "$status" -eq 0 ]; then
-              exit 0
-            fi
-
-            if echo "$output" | grep -qiE "already (exists|published)"; then
-              echo "::notice::Open VSX already has ${VERSION}; treating as published."
-              exit 0
-            fi
-
-            echo "::warning::ovsx publish attempt $attempt failed"
-            if [ "$attempt" -lt 3 ]; then
-              sleep "$((attempt * 30))"
-            fi
-          done
-          echo "::error::ovsx publish failed after 3 attempts"
-          exit 1
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ env.VERSION }}
-          name: v${{ env.VERSION }}
-          generate_release_notes: true
-          files: o10dock-${{ env.VERSION }}.vsix
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          path: o10dock-*.vsix
+          retention-days: 90
+          if-no-files-found: ignore
