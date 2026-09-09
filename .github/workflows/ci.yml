@@ -29,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Compile
         run: npm run compile
 
@@ -41,3 +44,30 @@ jobs:
           name: o10dock-vsix
           path: o10dock.vsix
           retention-days: 14
+
+  commitlint:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [ -z "$PR_TITLE" ]; then
+            echo "::notice::No PR title to validate (manual run)."
+            exit 0
+          fi
+
+          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .+'
+          if echo "$PR_TITLE" | grep -qE "$pattern"; then
+            echo "PR title follows Conventional Commits: $PR_TITLE"
+          else
+            echo "::error::PR title must follow Conventional Commits, e.g. 'feat(dashboard): add project filter'."
+            echo "::error::Got: $PR_TITLE"
+            exit 1
+          fi
