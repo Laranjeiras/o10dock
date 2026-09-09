@@ -2,7 +2,7 @@
   "name": "o10dock",
   "displayName": "O10Dock",
   "description": "A personalized VS Code project dashboard.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "o10Dock",
   "license": "MIT",
   "repository": {
