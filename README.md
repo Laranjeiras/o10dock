@@ -34,10 +34,14 @@ Cada merge em `main` dispara o workflow de release, que decide o bump pelo tipo 
 
 | Commit                                   | Bump    |
 | ---------------------------------------- | ------- |
-| `fix:`, `perf:`, `refactor:`, `build:` | patch   |
+| `fix:`, `perf:`, `refactor:`            | patch   |
 | `feat:`                                  | minor   |
 | `BREAKING CHANGE:` no rodapé             | major   |
-| `docs:`, `style:`, `test:`, `chore:`, `ci:` | nenhum |
+| `docs:`, `style:`, `test:`, `chore:`, `ci:`, `build:` | nenhum |
+
+`build:` não gera release de propósito: as PRs do Dependabot atualizam
+devDependencies, que não mudam nada para quem usa a extensão. Quando um bump
+de dependência realmente afeta o comportamento publicado, use `fix:` ou `feat:`.
 
 Quando há bump, o workflow compila, empacota o `.vsix`, publica no VS Code
 Marketplace e no Open VSX, cria a tag e a GitHub Release, e commita
