@@ -107,11 +107,25 @@ jobs:
         run: |
           for attempt in 1 2 3; do
             echo "::group::vsce publish attempt $attempt"
-            if npx @vscode/vsce publish --packagePath "o10dock-${VERSION}.vsix"; then
-              echo "::endgroup::"
+            set +e
+            output="$(npx @vscode/vsce publish --packagePath "o10dock-${VERSION}.vsix" 2>&1)"
+            status=$?
+            set -e
+            echo "$output"
+            echo "::endgroup::"
+
+            if [ "$status" -eq 0 ]; then
               exit 0
             fi
-            echo "::endgroup::"
+
+            # A gateway timeout can be reported after the upload already succeeded,
+            # so a retry legitimately finds the version published. That is the
+            # desired end state, not a failure.
+            if echo "$output" | grep -qi "already exists"; then
+              echo "::notice::Marketplace already has ${VERSION}; treating as published."
+              exit 0
+            fi
+
             echo "::warning::vsce publish attempt $attempt failed"
             if [ "$attempt" -lt 3 ]; then
               sleep "$((attempt * 30))"
@@ -126,11 +140,22 @@ jobs:
         run: |
           for attempt in 1 2 3; do
             echo "::group::ovsx publish attempt $attempt"
-            if npx ovsx publish "o10dock-${VERSION}.vsix" --pat "$OVSX_PAT"; then
-              echo "::endgroup::"
+            set +e
+            output="$(npx ovsx publish "o10dock-${VERSION}.vsix" --pat "$OVSX_PAT" 2>&1)"
+            status=$?
+            set -e
+            echo "$output"
+            echo "::endgroup::"
+
+            if [ "$status" -eq 0 ]; then
               exit 0
             fi
-            echo "::endgroup::"
+
+            if echo "$output" | grep -qiE "already (exists|published)"; then
+              echo "::notice::Open VSX already has ${VERSION}; treating as published."
+              exit 0
+            fi
+
             echo "::warning::ovsx publish attempt $attempt failed"
             if [ "$attempt" -lt 3 ]; then
               sleep "$((attempt * 30))"
