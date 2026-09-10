@@ -25,19 +25,37 @@ class O10DockViewProvider implements vscode.WebviewViewProvider {
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
-  async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
+  resolveWebviewView(webviewView: vscode.WebviewView): void {
     webviewView.webview.options = { enableScripts: true };
 
-    const render = async () => {
-      webviewView.webview.html = getDashboardHtml(await getProjectFolders());
-    };
+    const render = () => renderDashboard(webviewView.webview);
 
     webviewView.webview.onDidReceiveMessage((message: DashboardMessage) =>
       handleDashboardMessage(message, this.context, webviewView.webview, render)
     );
 
-    await render();
+    render();
   }
+}
+
+/**
+ * Paints the dashboard from the settings alone, then patches in the detected
+ * project kinds once the disk reads finish. The webview is usable before any
+ * I/O completes, and a slow or unreachable folder never delays the first paint.
+ */
+function renderDashboard(webview: vscode.Webview): void {
+  webview.html = getDashboardHtml(getProjectFoldersFast());
+
+  void getProjectFolders().then(
+    (folders) =>
+      webview.postMessage({
+        type: 'updateFolders',
+        folders: folders.map(({ path, icon, description }) => ({ path, icon, description }))
+      }),
+    // The view can be disposed while detection is in flight; postMessage then
+    // rejects and there is nothing left to update.
+    () => undefined
+  );
 }
 
 function readProjectEntries(): ProjectEntry[] {
@@ -61,23 +79,73 @@ async function getProjectFolders(): Promise<ProjectFolder[]> {
   return Promise.all(readProjectEntries().map(describeFolder));
 }
 
-const PROJECT_KINDS: ReadonlyArray<{ glob: string; icon: string; description: string }> = [
-  { glob: '*.slnx', icon: '🟣', description: '.NET solution' },
-  { glob: '*.sln', icon: '🟣', description: '.NET solution' },
-  { glob: '*.csproj', icon: '🟣', description: 'C# project' },
-  { glob: '*.fsproj', icon: '🔵', description: 'F# project' },
-  { glob: 'angular.json', icon: '🅰️', description: 'Angular app' },
-  { glob: 'next.config.*', icon: '▲', description: 'Next.js app' },
-  { glob: 'package.json', icon: '🟩', description: 'Node.js project' },
-  { glob: 'pyproject.toml', icon: '🐍', description: 'Python project' },
-  { glob: 'requirements.txt', icon: '🐍', description: 'Python project' },
-  { glob: 'go.mod', icon: '🐹', description: 'Go module' },
-  { glob: 'Cargo.toml', icon: '🦀', description: 'Rust crate' },
-  { glob: 'pom.xml', icon: '☕', description: 'Maven project' },
-  { glob: 'build.gradle*', icon: '☕', description: 'Gradle project' },
-  { glob: 'composer.json', icon: '🐘', description: 'PHP project' },
-  { glob: 'docker-compose.y*ml', icon: '🐳', description: 'Docker Compose stack' }
+/**
+ * Resolves entries without touching the disk, using the generic folder icon
+ * and description wherever the user did not set one. Rendering this first puts
+ * the dashboard on screen immediately; detected kinds arrive afterwards.
+ */
+function getProjectFoldersFast(): ProjectFolder[] {
+  return readProjectEntries().map((entry) => ({
+    path: entry.path,
+    name: entry.name?.trim() || folderNameOf(entry.path),
+    icon: '📁',
+    description: entry.description?.trim() || 'Folder'
+  }));
+}
+
+/**
+ * Ordered most specific first: the first kind whose `matches` accepts a file
+ * name in the folder wins, so `.slnx` beats `.sln`, and both beat a stray
+ * `package.json` sitting next to a solution.
+ */
+const PROJECT_KINDS: ReadonlyArray<{
+  matches: (name: string) => boolean;
+  icon: string;
+  description: string;
+}> = [
+  { matches: hasExtension('.slnx'), icon: '🟣', description: '.NET solution' },
+  { matches: hasExtension('.sln'), icon: '🟣', description: '.NET solution' },
+  { matches: hasExtension('.csproj'), icon: '🟣', description: 'C# project' },
+  { matches: hasExtension('.fsproj'), icon: '🔵', description: 'F# project' },
+  { matches: isNamed('angular.json'), icon: '🅰️', description: 'Angular app' },
+  { matches: hasPrefix('next.config.'), icon: '▲', description: 'Next.js app' },
+  { matches: isNamed('package.json'), icon: '🟩', description: 'Node.js project' },
+  { matches: isNamed('pyproject.toml'), icon: '🐍', description: 'Python project' },
+  { matches: isNamed('requirements.txt'), icon: '🐍', description: 'Python project' },
+  { matches: isNamed('go.mod'), icon: '🐹', description: 'Go module' },
+  { matches: isNamed('Cargo.toml'), icon: '🦀', description: 'Rust crate' },
+  { matches: isNamed('pom.xml'), icon: '☕', description: 'Maven project' },
+  { matches: hasPrefixOrExact('build.gradle'), icon: '☕', description: 'Gradle project' },
+  { matches: isNamed('composer.json'), icon: '🐘', description: 'PHP project' },
+  {
+    matches: (name) => name === 'docker-compose.yml' || name === 'docker-compose.yaml',
+    icon: '🐳',
+    description: 'Docker Compose stack'
+  }
 ];
+
+// File names are compared case-insensitively: Windows and macOS treat
+// `Package.json` and `package.json` as the same file, and a project should not
+// go undetected because of how it was written to disk.
+function isNamed(expected: string): (name: string) => boolean {
+  const target = expected.toLowerCase();
+  return (name) => name === target;
+}
+
+function hasExtension(extension: string): (name: string) => boolean {
+  return (name) => name.endsWith(extension) && name.length > extension.length;
+}
+
+function hasPrefix(prefix: string): (name: string) => boolean {
+  const target = prefix.toLowerCase();
+  return (name) => name.startsWith(target) && name.length > target.length;
+}
+
+/** Mirrors a `foo*` glob, which matches the bare `foo` as well as `foo.bar`. */
+function hasPrefixOrExact(prefix: string): (name: string) => boolean {
+  const target = prefix.toLowerCase();
+  return (name) => name.startsWith(target);
+}
 
 function folderNameOf(folderPath: string): string {
   return folderPath.split(/[\\/]/).filter(Boolean).pop() ?? folderPath;
@@ -94,17 +162,50 @@ async function describeFolder(entry: ProjectEntry): Promise<ProjectFolder> {
   };
 }
 
-async function detectProjectKind(
-  folderPath: string
-): Promise<{ icon: string; description: string } | undefined> {
-  for (const kind of PROJECT_KINDS) {
-    const pattern = new vscode.RelativePattern(vscode.Uri.file(folderPath), kind.glob);
-    const [match] = await vscode.workspace.findFiles(pattern, undefined, 1);
-    if (match) {
-      return kind;
+type ProjectKind = { icon: string; description: string };
+
+/**
+ * Detection reads the folder once and matches names in memory. The previous
+ * implementation ran one `findFiles` search per kind, which spins up a search
+ * job per glob and cost up to fifteen of them for a folder that matched
+ * nothing — the dominant cost of rendering the dashboard.
+ */
+const kindCache = new Map<string, { mtime: number; kind: ProjectKind | undefined }>();
+
+async function detectProjectKind(folderPath: string): Promise<ProjectKind | undefined> {
+  const folder = vscode.Uri.file(folderPath);
+
+  // The folder's own mtime changes when an entry is added or removed, which is
+  // exactly when a cached kind could go stale. A folder we cannot stat is gone
+  // or unreadable; fall through and let readDirectory report it.
+  let mtime: number | undefined;
+  try {
+    mtime = (await vscode.workspace.fs.stat(folder)).mtime;
+    const cached = kindCache.get(folderPath);
+    if (cached && cached.mtime === mtime) {
+      return cached.kind;
     }
+  } catch {
+    kindCache.delete(folderPath);
+    return undefined;
   }
-  return undefined;
+
+  let names: string[];
+  try {
+    names = (await vscode.workspace.fs.readDirectory(folder))
+      .filter(([, type]) => type !== vscode.FileType.Directory)
+      .map(([name]) => name.toLowerCase());
+  } catch {
+    // Unreadable or missing folder: render it as a plain folder rather than
+    // failing the whole dashboard.
+    kindCache.delete(folderPath);
+    return undefined;
+  }
+
+  const kind = PROJECT_KINDS.find((candidate) => names.some(candidate.matches));
+  const detected = kind && { icon: kind.icon, description: kind.description };
+  kindCache.set(folderPath, { mtime, kind: detected });
+  return detected;
 }
 
 type DashboardMessage = {
@@ -367,14 +468,12 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerWebviewViewProvider(O10DockViewProvider.viewType, provider)
   );
 
-  const disposable = vscode.commands.registerCommand('o10dock.open', async () => {
+  const disposable = vscode.commands.registerCommand('o10dock.open', () => {
     const panel = vscode.window.createWebviewPanel('o10dock', 'O10Dock', vscode.ViewColumn.One, {
       enableScripts: true
     });
 
-    const render = async () => {
-      panel.webview.html = getDashboardHtml(await getProjectFolders());
-    };
+    const render = () => renderDashboard(panel.webview);
 
     panel.webview.onDidReceiveMessage(
       (message: DashboardMessage) =>
@@ -383,7 +482,7 @@ export function activate(context: vscode.ExtensionContext): void {
       context.subscriptions
     );
 
-    await render();
+    render();
   });
 
   context.subscriptions.push(disposable);
@@ -743,6 +842,25 @@ function getDashboardHtml(folders: ProjectFolder[]): string {
         nameInput.select();
       } else if (message?.type === 'browsedFolder') {
         pathInput.value = message.path;
+      } else if (message?.type === 'updateFolders') {
+        // Second render pass: the detected icon and description replace the
+        // generic placeholders painted from the settings alone.
+        for (const folder of message.folders) {
+          const item = document.querySelector(
+            '.folder-item[data-path="' + CSS.escape(folder.path) + '"]'
+          );
+          if (!item) {
+            continue;
+          }
+          const icon = item.querySelector('.codicon');
+          if (icon) {
+            icon.textContent = folder.icon;
+          }
+          const description = item.querySelector('.folder-description');
+          if (description) {
+            description.textContent = folder.description;
+          }
+        }
       }
     });
 
