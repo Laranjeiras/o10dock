@@ -33,7 +33,7 @@ class O10DockViewProvider implements vscode.WebviewViewProvider {
     };
 
     webviewView.webview.onDidReceiveMessage((message: DashboardMessage) =>
-      handleDashboardMessage(message, this.context, render)
+      handleDashboardMessage(message, this.context, webviewView.webview, render)
     );
 
     await render();
@@ -111,11 +111,13 @@ type DashboardMessage = {
   type?: string;
   path?: string;
   paths?: string[];
+  entry?: ProjectEntry;
 };
 
 async function handleDashboardMessage(
   message: DashboardMessage,
   context: vscode.ExtensionContext,
+  webview: vscode.Webview,
   onFoldersChanged: () => void
 ): Promise<void> {
   switch (message.type) {
@@ -129,7 +131,17 @@ async function handleDashboardMessage(
 
     case 'editFolder':
       if (typeof message.path === 'string') {
-        await editFolder(message.path, onFoldersChanged);
+        await requestEditDialog(message.path, webview);
+      }
+      return;
+
+    case 'browseFolder':
+      await browseForDialog(context, message.path, webview);
+      return;
+
+    case 'saveFolder':
+      if (typeof message.path === 'string' && message.entry) {
+        await saveFolder(message.path, message.entry, onFoldersChanged);
       }
       return;
 
@@ -147,15 +159,38 @@ async function handleDashboardMessage(
 
     case 'openFolder':
       if (typeof message.path === 'string') {
-        await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(message.path), {
-          forceNewWindow: true
-        });
+        await openFolder(message.path);
       }
       return;
 
     default:
       return;
   }
+}
+
+/**
+ * Lets the user choose the target window. The dashboard lives in the current
+ * window, so reusing it replaces what the user is looking at — never assume it.
+ */
+async function openFolder(path: string): Promise<void> {
+  const entries = readProjectEntries();
+  const target = entries.find((entry) => entry.path === path);
+  const label = target?.name?.trim() || folderNameOf(path);
+
+  const choice = await vscode.window.showQuickPick(
+    [
+      { label: '$(window) Open in Current Window', forceNewWindow: false },
+      { label: '$(empty-window) Open in New Window', forceNewWindow: true }
+    ],
+    { title: `Open ${label}`, placeHolder: path }
+  );
+  if (!choice) {
+    return;
+  }
+
+  await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(path), {
+    forceNewWindow: choice.forceNewWindow
+  });
 }
 
 async function pickFolder(
@@ -203,47 +238,63 @@ async function addFolder(
   onFoldersChanged();
 }
 
-async function editFolder(path: string, onFoldersChanged: () => void): Promise<void> {
+/**
+ * Sends the stored entry to the webview so its modal opens pre-filled with the
+ * raw values, not the rendered fallbacks — an empty field must stay empty so
+ * the user can tell a custom name from a detected one.
+ */
+async function requestEditDialog(path: string, webview: vscode.Webview): Promise<void> {
+  const current = readProjectEntries().find((entry) => entry.path === path);
+  if (!current) {
+    return;
+  }
+
+  await webview.postMessage({
+    type: 'showEditDialog',
+    path: current.path,
+    entry: {
+      path: current.path,
+      name: current.name ?? '',
+      description: current.description ?? ''
+    },
+    placeholders: {
+      name: folderNameOf(current.path),
+      description: (await detectProjectKind(current.path))?.description ?? 'Folder'
+    }
+  });
+}
+
+/** Opens the native folder dialog for the modal's browse button. */
+async function browseForDialog(
+  context: vscode.ExtensionContext,
+  currentPath: string | undefined,
+  webview: vscode.Webview
+): Promise<void> {
+  const picked = await pickFolder(context, 'Select Folder', currentPath);
+  if (!picked) {
+    return;
+  }
+
+  await webview.postMessage({ type: 'browsedFolder', path: picked });
+}
+
+async function saveFolder(
+  path: string,
+  edited: ProjectEntry,
+  onFoldersChanged: () => void
+): Promise<void> {
   const entries = readProjectEntries();
   const index = entries.findIndex((entry) => entry.path === path);
   if (index < 0) {
     return;
   }
 
-  const current = entries[index];
-
-  const newPath = await vscode.window.showInputBox({
-    title: 'Edit project — path',
-    prompt: 'Folder path',
-    value: current.path,
-    ignoreFocusOut: true,
-    validateInput: (value) => (value.trim() ? undefined : 'Path cannot be empty.')
-  });
-  if (newPath === undefined) {
+  const trimmedPath = edited.path?.trim() ?? '';
+  if (!trimmedPath) {
+    void vscode.window.showErrorMessage('Path cannot be empty.');
     return;
   }
 
-  const newName = await vscode.window.showInputBox({
-    title: 'Edit project — name',
-    prompt: 'Project name (leave empty to use the folder name)',
-    value: current.name ?? folderNameOf(current.path),
-    ignoreFocusOut: true
-  });
-  if (newName === undefined) {
-    return;
-  }
-
-  const newDescription = await vscode.window.showInputBox({
-    title: 'Edit project — description',
-    prompt: 'Short description (leave empty to use the detected project kind)',
-    value: current.description ?? '',
-    ignoreFocusOut: true
-  });
-  if (newDescription === undefined) {
-    return;
-  }
-
-  const trimmedPath = newPath.trim();
   const isDuplicate = entries.some((entry, i) => i !== index && entry.path === trimmedPath);
   if (isDuplicate) {
     void vscode.window.showErrorMessage(`"${trimmedPath}" is already in the dock.`);
@@ -252,8 +303,8 @@ async function editFolder(path: string, onFoldersChanged: () => void): Promise<v
 
   entries[index] = {
     path: trimmedPath,
-    name: newName.trim() || undefined,
-    description: newDescription.trim() || undefined
+    name: edited.name?.trim() || undefined,
+    description: edited.description?.trim() || undefined
   };
 
   await writeProjectEntries(entries);
@@ -326,7 +377,8 @@ export function activate(context: vscode.ExtensionContext): void {
     };
 
     panel.webview.onDidReceiveMessage(
-      (message: DashboardMessage) => handleDashboardMessage(message, context, render),
+      (message: DashboardMessage) =>
+        handleDashboardMessage(message, context, panel.webview, render),
       undefined,
       context.subscriptions
     );
@@ -430,7 +482,7 @@ function getDashboardHtml(folders: ProjectFolder[]): string {
       margin: 28px 0 0;
       padding: 0;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
       gap: 8px;
     }
     .folder-item {
@@ -505,6 +557,73 @@ function getDashboardHtml(folders: ProjectFolder[]): string {
     .action-button:hover { background: var(--vscode-toolbar-hoverBackground); }
     .action-button.danger:hover { color: var(--vscode-errorForeground); }
     .action-button:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+    dialog {
+      width: min(420px, 90vw);
+      padding: 0;
+      border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+      border-radius: 6px;
+      background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+      color: var(--vscode-foreground);
+      box-shadow: 0 8px 24px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+    }
+    dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+    dialog form { display: flex; flex-direction: column; }
+    .dialog-title {
+      margin: 0;
+      padding: 14px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+    .dialog-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px;
+    }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 12px; color: var(--vscode-descriptionForeground); }
+    .field-row { display: flex; gap: 6px; }
+    .field-row input { flex: 1; min-width: 0; }
+    dialog input {
+      padding: 5px 8px;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--vscode-input-foreground);
+      background: var(--vscode-input-background);
+      border: 1px solid var(--vscode-input-border, transparent);
+      border-radius: 3px;
+    }
+    dialog input:focus { outline: 1px solid var(--vscode-focusBorder); }
+    dialog input::placeholder { color: var(--vscode-input-placeholderForeground); }
+    .dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--vscode-panel-border);
+    }
+    .dialog-actions button, .browse-button {
+      padding: 5px 14px;
+      font-family: inherit;
+      font-size: 13px;
+      border: 0;
+      border-radius: 3px;
+      color: var(--vscode-button-foreground);
+      background: var(--vscode-button-background);
+      cursor: pointer;
+    }
+    .dialog-actions button:hover, .browse-button:hover {
+      background: var(--vscode-button-hoverBackground);
+    }
+    .dialog-actions button.secondary {
+      color: var(--vscode-button-secondaryForeground);
+      background: var(--vscode-button-secondaryBackground);
+    }
+    .dialog-actions button.secondary:hover {
+      background: var(--vscode-button-secondaryHoverBackground);
+    }
+    .browse-button { flex-shrink: 0; padding: 5px 10px; }
   </style>
 </head>
 <body>
@@ -518,6 +637,32 @@ function getDashboardHtml(folders: ProjectFolder[]): string {
     </div>
   </header>
   ${listOrEmpty}
+  <dialog id="editDialog">
+    <form method="dialog" id="editForm">
+      <h2 class="dialog-title">Edit project</h2>
+      <div class="dialog-body">
+        <div class="field">
+          <label for="editPath">Path</label>
+          <div class="field-row">
+            <input id="editPath" name="path" type="text" required spellcheck="false">
+            <button type="button" class="browse-button" id="browseFolder" title="Browse for folder">Browse…</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="editName">Name</label>
+          <input id="editName" name="name" type="text" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="editDescription">Description</label>
+          <input id="editDescription" name="description" type="text">
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="secondary" id="cancelEdit">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     document.getElementById('addFolder')?.addEventListener('click', () => {
@@ -545,6 +690,59 @@ function getDashboardHtml(folders: ProjectFolder[]): string {
       const type = MESSAGE_BY_ACTION[trigger.getAttribute('data-action')];
       if (type) {
         vscode.postMessage({ type, path: trigger.getAttribute('data-path') });
+      }
+    });
+
+    const dialog = document.getElementById('editDialog');
+    const form = document.getElementById('editForm');
+    const pathInput = document.getElementById('editPath');
+    const nameInput = document.getElementById('editName');
+    const descriptionInput = document.getElementById('editDescription');
+    // The entry being edited is keyed by its original path, so renaming the
+    // path still updates the right entry instead of creating a new one.
+    let editingPath = null;
+
+    document.getElementById('browseFolder')?.addEventListener('click', () => {
+      vscode.postMessage({ type: 'browseFolder', path: pathInput.value.trim() });
+    });
+
+    document.getElementById('cancelEdit')?.addEventListener('click', () => {
+      dialog.close();
+    });
+
+    dialog?.addEventListener('close', () => {
+      editingPath = null;
+    });
+
+    form?.addEventListener('submit', () => {
+      if (!editingPath) {
+        return;
+      }
+      vscode.postMessage({
+        type: 'saveFolder',
+        path: editingPath,
+        entry: {
+          path: pathInput.value,
+          name: nameInput.value,
+          description: descriptionInput.value
+        }
+      });
+    });
+
+    window.addEventListener('message', (event) => {
+      const message = event.data;
+      if (message?.type === 'showEditDialog') {
+        editingPath = message.path;
+        pathInput.value = message.entry.path;
+        nameInput.value = message.entry.name;
+        descriptionInput.value = message.entry.description;
+        nameInput.placeholder = message.placeholders.name;
+        descriptionInput.placeholder = message.placeholders.description;
+        dialog.showModal();
+        nameInput.focus();
+        nameInput.select();
+      } else if (message?.type === 'browsedFolder') {
+        pathInput.value = message.path;
       }
     });
 
