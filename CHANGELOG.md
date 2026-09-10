@@ -1,3 +1,9 @@
+## [0.3.1](https://github.com/Laranjeiras/o10dock/compare/v0.3.0...v0.3.1) (2026-09-10)
+
+### Performance Improvements
+
+* **dashboard:** detect project kinds with one directory read ([217bd1b](https://github.com/Laranjeiras/o10dock/commit/217bd1bdfaa4c1784aabd80b06457cd328e72653))
+
 ## [0.3.0](https://github.com/Laranjeiras/o10dock/compare/v0.2.0...v0.3.0) (2026-09-10)
 
 ### Features

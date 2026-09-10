@@ -2,7 +2,7 @@
   "name": "o10dock",
   "displayName": "O10Dock",
   "description": "Dock de projetos na barra lateral do VS Code: lista suas pastas com ícone e tipo detectado e abre cada uma na janela que você escolher.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "o10Dock",
   "license": "MIT",
   "repository": {
