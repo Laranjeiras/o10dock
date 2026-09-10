@@ -1,7 +1,7 @@
 {
   "name": "o10dock",
   "displayName": "O10Dock",
-  "description": "A personalized VS Code project dashboard.",
+  "description": "Dock de projetos na barra lateral do VS Code: lista suas pastas com ícone e tipo detectado e abre cada uma na janela que você escolher.",
   "version": "0.3.0",
   "publisher": "o10Dock",
   "license": "MIT",
@@ -100,5 +100,21 @@
     "ovsx": "0.10.12",
     "semantic-release": "24.2.9",
     "typescript": "7.0.2"
-  }
+  },
+  "keywords": [
+    "dashboard",
+    "projects",
+    "workspace",
+    "sidebar",
+    "project manager",
+    "recent folders"
+  ],
+  "galleryBanner": {
+    "color": "#1f1f1f",
+    "theme": "dark"
+  },
+  "bugs": {
+    "url": "https://github.com/Laranjeiras/o10dock/issues"
+  },
+  "homepage": "https://github.com/Laranjeiras/o10dock#readme"
 }
